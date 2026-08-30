@@ -1,0 +1,19 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Temporary compiler artifacts
+*.tmp
+*.manifest
+App.cs
+
+# User specific files & IDE
+.vs/
+.vscode/
+.idea/
+
+# Windows desktop / cache files
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
