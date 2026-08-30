@@ -172,10 +172,10 @@ def generate_csharp_source(
             try {{
                 IntPtr baseAddress = Process.GetCurrentProcess().MainModule.BaseAddress;
                 uint oldProtect;
-                if (VirtualProtect(baseAddress, (UIntPtr)4096, 0x04 /* PAGE_READWRITE */, out oldProtect)) {{
-                    byte[] zeroes = new byte[4096];
-                    Marshal.Copy(zeroes, 0, baseAddress, 4096);
-                    VirtualProtect(baseAddress, (UIntPtr)4096, oldProtect, out oldProtect);
+                if (VirtualProtect(baseAddress, (UIntPtr)64, 0x04 /* PAGE_READWRITE */, out oldProtect)) {{
+                    byte[] zeroes = new byte[64];
+                    Marshal.Copy(zeroes, 0, baseAddress, 64);
+                    VirtualProtect(baseAddress, (UIntPtr)64, oldProtect, out oldProtect);
                 }}
             }} catch {{ }}
         }}
@@ -285,7 +285,6 @@ def generate_csharp_source(
                 HideThread();
                 {unhook_call}
                 StartRaspWatchdog();
-                CloakPeHeader();
                 if (Debugger.IsAttached) Terminate();
                 if (IsDebuggerPresent()) Terminate();
                 bool remoteDbg = false;
@@ -423,6 +422,7 @@ using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 using System.Security.Cryptography;
 using System.IO.Compression;
+using Microsoft.Win32;
 
 [assembly: AssemblyTitle("{title}")]
 [assembly: AssemblyDescription("{description}")]
@@ -1432,6 +1432,161 @@ namespace TigerVmApp
         }}
     }}
 
+    public static class TigerSystem
+    {{
+        public static string RegRead(string hive, string path, string name)
+        {{
+            try
+            {{
+                Microsoft.Win32.RegistryKey root = hive.Equals("HKLM", StringComparison.OrdinalIgnoreCase) || hive.Equals("HKEY_LOCAL_MACHINE", StringComparison.OrdinalIgnoreCase) ? Microsoft.Win32.Registry.LocalMachine : Microsoft.Win32.Registry.CurrentUser;
+                using (var sub = root.OpenSubKey(path, false))
+                {{
+                    if (sub == null) return "";
+                    object val = sub.GetValue(name);
+                    return val != null ? val.ToString() : "";
+                }}
+            }}
+            catch {{ return ""; }}
+        }}
+
+        public static bool RegWrite(string hive, string path, string name, string data, string type)
+        {{
+            try
+            {{
+                Microsoft.Win32.RegistryKey root = hive.Equals("HKLM", StringComparison.OrdinalIgnoreCase) || hive.Equals("HKEY_LOCAL_MACHINE", StringComparison.OrdinalIgnoreCase) ? Microsoft.Win32.Registry.LocalMachine : Microsoft.Win32.Registry.CurrentUser;
+                using (var sub = root.CreateSubKey(path))
+                {{
+                    if (sub == null) return false;
+                    if (type.Equals("DWORD", StringComparison.OrdinalIgnoreCase))
+                    {{
+                        int intVal = 0; int.TryParse(data, out intVal);
+                        sub.SetValue(name, intVal, Microsoft.Win32.RegistryValueKind.DWord);
+                    }}
+                    else if (type.Equals("QWORD", StringComparison.OrdinalIgnoreCase))
+                    {{
+                        long longVal = 0; long.TryParse(data, out longVal);
+                        sub.SetValue(name, longVal, Microsoft.Win32.RegistryValueKind.QWord);
+                    }}
+                    else
+                    {{
+                        sub.SetValue(name, data, Microsoft.Win32.RegistryValueKind.String);
+                    }}
+                    return true;
+                }}
+            }}
+            catch {{ return false; }}
+        }}
+
+        public static string GetSysInfo(string prop)
+        {{
+            try
+            {{
+                prop = (prop ?? "").Trim().ToUpperInvariant();
+                if (prop == "CPU_COUNT") return Environment.ProcessorCount.ToString();
+                if (prop == "OS_VERSION") return Environment.OSVersion.ToString();
+                if (prop == "IS_64BIT") return Environment.Is64BitOperatingSystem ? "TRUE" : "FALSE";
+                if (prop == "MACHINE_NAME") return Environment.MachineName;
+                if (prop == "USER_NAME") return Environment.UserName;
+                if (prop == "UPTIME_SEC") return (Environment.TickCount / 1000).ToString();
+                if (prop == "RAM_TOTAL_MB" || prop == "RAM_FREE_MB")
+                {{
+                    long ws = Process.GetCurrentProcess().WorkingSet64 / (1024 * 1024);
+                    return ws.ToString();
+                }}
+                return Environment.GetEnvironmentVariable(prop) ?? "N/A";
+            }}
+            catch {{ return "N/A"; }}
+        }}
+
+        public static string NetPing(string host, int port, int timeoutMs)
+        {{
+            try
+            {{
+                using (var client = new System.Net.Sockets.TcpClient())
+                {{
+                    var ar = client.BeginConnect(host, port, null, null);
+                    bool ok = ar.AsyncWaitHandle.WaitOne(timeoutMs <= 0 ? 2000 : timeoutMs);
+                    if (ok && client.Connected) {{ client.EndConnect(ar); return "OPEN"; }}
+                    return "CLOSED";
+                }}
+            }}
+            catch {{ return "ERROR"; }}
+        }}
+
+        public static void UnzipToVfs(string zipSrc, string prefix, Dictionary<string, string> vfsDict)
+        {{
+            try
+            {{
+                byte[] zipBytes = null;
+                if (vfsDict.ContainsKey(zipSrc)) zipBytes = Convert.FromBase64String(vfsDict[zipSrc]);
+                else if (File.Exists(zipSrc)) zipBytes = File.ReadAllBytes(zipSrc);
+                if (zipBytes == null) return;
+                using (MemoryStream ms = new MemoryStream(zipBytes))
+                using (System.IO.Compression.ZipArchive za = new System.IO.Compression.ZipArchive(ms, System.IO.Compression.ZipArchiveMode.Read))
+                {{
+                    foreach (var entry in za.Entries)
+                    {{
+                        if (string.IsNullOrEmpty(entry.Name)) continue;
+                        using (var es = entry.Open())
+                        using (var ems = new MemoryStream())
+                        {{
+                            es.CopyTo(ems);
+                            string vKey = prefix.TrimEnd('\\\\', '/') + "\\\\" + entry.FullName.Replace("/", "\\\\");
+                            vfsDict[vKey] = Convert.ToBase64String(ems.ToArray());
+                        }}
+                    }}
+                }}
+            }}
+            catch {{ }}
+        }}
+    }}
+
+    public static class TigerMemory
+    {{
+        public static string Alloc(int bytes)
+        {{
+            try {{ IntPtr p = Marshal.AllocHGlobal(bytes); return "0x" + p.ToInt64().ToString("X"); }}
+            catch {{ return "0x0"; }}
+        }}
+
+        public static void Free(string ptrHex)
+        {{
+            try
+            {{
+                long addr = Convert.ToInt64(ptrHex.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? ptrHex.Substring(2) : ptrHex, 16);
+                if (addr != 0) Marshal.FreeHGlobal(new IntPtr(addr));
+            }}
+            catch {{ }}
+        }}
+
+        public static void WriteString(string ptrHex, string text)
+        {{
+            try
+            {{
+                long addr = Convert.ToInt64(ptrHex.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? ptrHex.Substring(2) : ptrHex, 16);
+                if (addr == 0) return;
+                byte[] bytes = Encoding.UTF8.GetBytes(text + "\\0");
+                Marshal.Copy(bytes, 0, new IntPtr(addr), bytes.Length);
+            }}
+            catch {{ }}
+        }}
+
+        public static string ReadString(string ptrHex, int maxLen)
+        {{
+            try
+            {{
+                long addr = Convert.ToInt64(ptrHex.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? ptrHex.Substring(2) : ptrHex, 16);
+                if (addr == 0) return "";
+                byte[] buf = new byte[maxLen <= 0 ? 256 : maxLen];
+                Marshal.Copy(new IntPtr(addr), buf, 0, buf.Length);
+                int nullIdx = Array.IndexOf(buf, (byte)0);
+                if (nullIdx != -1) return Encoding.UTF8.GetString(buf, 0, nullIdx);
+                return Encoding.UTF8.GetString(buf);
+            }}
+            catch {{ return ""; }}
+        }}
+    }}
+
     public class VmCode
     {{
         public int Op;
@@ -2181,6 +2336,58 @@ namespace TigerVmApp
                             Environment.SetEnvironmentVariable(vlDest, vfsListStr);
                         }}
                         break;
+                    case 55: // RegRead
+                        string rrVar = a1; string rrHive = ExpandVars(a2); string rrPath = ExpandVars(a3); string rrName = ExpandVars(a4);
+                        string rrVal = TigerSystem.RegRead(rrHive, rrPath, rrName);
+                        lock (_threadLock) {{ Variables[rrVar] = rrVal; Variables["REG_RESULT"] = rrVal; Environment.SetEnvironmentVariable(rrVar, rrVal); }}
+                        break;
+                    case 56: // RegWrite
+                        string rwHive = ExpandVars(a1); string rwPath = ExpandVars(a2); string rwName = ExpandVars(a3);
+                        string[] rwParts = (a4 ?? "").Split('|');
+                        string rwData = ExpandVars(rwParts[0]);
+                        string rwType = rwParts.Length > 1 ? rwParts[1] : "SZ";
+                        bool rwOk = TigerSystem.RegWrite(rwHive, rwPath, rwName, rwData, rwType);
+                        lock (_threadLock) {{ Variables["REG_RESULT"] = rwOk ? "SUCCESS" : "FAILED"; }}
+                        break;
+                    case 57: // MemAlloc
+                        string maVar = a1; int maSize = 1024; int.TryParse(ExpandVars(a2), out maSize);
+                        string maPtr = TigerMemory.Alloc(maSize > 0 ? maSize : 1024);
+                        lock (_threadLock) {{ Variables[maVar] = maPtr; Variables["MEM_PTR"] = maPtr; Environment.SetEnvironmentVariable(maVar, maPtr); }}
+                        break;
+                    case 58: // MemFree
+                        string mfPtr = ExpandVars(a1);
+                        lock (_threadLock) {{ if (Variables.ContainsKey(a1)) mfPtr = Variables[a1]; }}
+                        TigerMemory.Free(mfPtr);
+                        break;
+                    case 59: // MemWriteStr
+                        string mwPtr = ExpandVars(a1);
+                        lock (_threadLock) {{ if (Variables.ContainsKey(a1)) mwPtr = Variables[a1]; }}
+                        string mwTxt = ExpandVars(a2);
+                        TigerMemory.WriteString(mwPtr, mwTxt);
+                        break;
+                    case 60: // MemReadStr
+                        string mrVar = a1; string mrPtr = ExpandVars(a2);
+                        lock (_threadLock) {{ if (Variables.ContainsKey(a2)) mrPtr = Variables[a2]; }}
+                        int mrLen = 256; int.TryParse(ExpandVars(a3), out mrLen);
+                        string mrTxt = TigerMemory.ReadString(mrPtr, mrLen);
+                        lock (_threadLock) {{ Variables[mrVar] = mrTxt; Variables["MEM_TEXT"] = mrTxt; Environment.SetEnvironmentVariable(mrVar, mrTxt); }}
+                        break;
+                    case 61: // SysInfo
+                        string siVar = a1; string siProp = ExpandVars(a2);
+                        string siVal = TigerSystem.GetSysInfo(siProp);
+                        lock (_threadLock) {{ Variables[siVar] = siVal; Variables["SYS_RESULT"] = siVal; Environment.SetEnvironmentVariable(siVar, siVal); }}
+                        break;
+                    case 62: // NetPing
+                        string npVar = a1; string npHost = ExpandVars(a2);
+                        int npPort = 80; int.TryParse(ExpandVars(a3), out npPort);
+                        int npTimeout = 2000; int.TryParse(ExpandVars(a4), out npTimeout);
+                        string npRes = TigerSystem.NetPing(npHost, npPort, npTimeout);
+                        lock (_threadLock) {{ Variables[npVar] = npRes; Variables["PING_RESULT"] = npRes; Environment.SetEnvironmentVariable(npVar, npRes); }}
+                        break;
+                    case 63: // VfsUnzip
+                        string vuSrc = ExpandVars(a1); string vuPfx = ExpandVars(a2);
+                        lock (_threadLock) {{ TigerSystem.UnzipToVfs(vuSrc, vuPfx, EmbeddedFiles); }}
+                        break;
                 }}
                 {cff_loop_end}
         }}
@@ -2415,6 +2622,8 @@ def compile_batch_to_exe(
             "/r:System.Data.dll",
             "/r:System.Windows.Forms.dll",
             "/r:System.Drawing.dll",
+            "/r:System.IO.Compression.dll",
+            "/r:System.IO.Compression.FileSystem.dll",
             f"/out:{os.path.abspath(output_exe_path)}",
             f"/win32manifest:{manifest_file}",
         ]

@@ -337,6 +337,25 @@ class BatchDecompiler:
                 lines.append(get_indent() + f"::@hud_spinner {a1} \"{a2}\"")
             elif op == TigerVMCompiler.OP_VFS_LIST:
                 lines.append(get_indent() + f"::@vfs_list {a1}")
+            elif op == TigerVMCompiler.OP_REG_READ:
+                lines.append(get_indent() + f"::@reg_read {a1} {a2} {a3} \"{a4}\"")
+            elif op == TigerVMCompiler.OP_REG_WRITE:
+                rw_parts = a4.split("|", 1) if a4 else ["", "SZ"]
+                lines.append(get_indent() + f"::@reg_write {a1} {a2} {a3} \"{rw_parts[0]}\" {rw_parts[1] if len(rw_parts) > 1 else 'SZ'}")
+            elif op == TigerVMCompiler.OP_MEM_ALLOC:
+                lines.append(get_indent() + f"::@mem_alloc {a1} {a2}")
+            elif op == TigerVMCompiler.OP_MEM_FREE:
+                lines.append(get_indent() + f"::@mem_free {a1}")
+            elif op == TigerVMCompiler.OP_MEM_WRITE:
+                lines.append(get_indent() + f"::@mem_write {a1} \"{a2}\"")
+            elif op == TigerVMCompiler.OP_MEM_READ:
+                lines.append(get_indent() + f"::@mem_read {a1} {a2} {a3}")
+            elif op == TigerVMCompiler.OP_SYS_INFO:
+                lines.append(get_indent() + f"::@sys_info {a1} {a2}")
+            elif op == TigerVMCompiler.OP_NET_PING:
+                lines.append(get_indent() + f"::@net_ping {a1} {a2} {a3} {a4}")
+            elif op == TigerVMCompiler.OP_VFS_UNZIP:
+                lines.append(get_indent() + f"::@vfs_unzip \"{a1}\" \"{a2}\"")
             elif op in [TigerVMCompiler.OP_EXEC_DIRECT, TigerVMCompiler.OP_PIPE_STREAM]:
                 if a1:
                     lines.append(get_indent() + a1)

@@ -71,6 +71,15 @@ class TigerVMCompiler:
     OP_HUD_TABLE = 52
     OP_HUD_SPINNER = 53
     OP_VFS_LIST = 54
+    OP_REG_READ = 55
+    OP_REG_WRITE = 56
+    OP_MEM_ALLOC = 57
+    OP_MEM_FREE = 58
+    OP_MEM_WRITE = 59
+    OP_MEM_READ = 60
+    OP_SYS_INFO = 61
+    OP_NET_PING = 62
+    OP_VFS_UNZIP = 63
 
     OP_NAMES = {
         0: "NOP", 1: "ECHO", 2: "ECHOTOGGLE", 3: "SETVAR", 4: "SETMATH",
@@ -87,7 +96,9 @@ class TigerVMCompiler:
         41: "JSONGET", 42: "JSONSET", 43: "SQLEXEC", 44: "SQLQUERY",
         45: "CLIPGET", 46: "CLIPSET", 47: "CRYPTOAES", 48: "CRYPTOHASH",
         49: "TRYSTART", 50: "CATCH", 51: "ENDTRY", 52: "HUDTABLE",
-        53: "HUDSPINNER", 54: "VFSLIST"
+        53: "HUDSPINNER", 54: "VFSLIST", 55: "REGREAD", 56: "REGWRITE",
+        57: "MEMALLOC", 58: "MEMFREE", 59: "MEMWRITE", 60: "MEMREAD",
+        61: "SYSINFO", 62: "NETPING", 63: "VFSUNZIP"
     }
 
     @staticmethod
@@ -507,6 +518,127 @@ class TigerVMCompiler:
                     instructions.append({
                         "op": TigerVMCompiler.OP_VFS_LIST,
                         "arg1": dest_var
+                    })
+                    continue
+
+                # ::@reg_read <destVar> <hive> <path> <name>
+                if dir_line.lower().startswith("reg_read ") or dir_line.lower().startswith("regread "):
+                    parts = dir_line.split(None, 4)
+                    dest_var = parts[1] if len(parts) > 1 else "REG_VAL"
+                    hive = parts[2] if len(parts) > 2 else "HKCU"
+                    k_path = parts[3] if len(parts) > 3 else ""
+                    v_name = parts[4].strip('"\'') if len(parts) > 4 else ""
+                    instructions.append({
+                        "op": TigerVMCompiler.OP_REG_READ,
+                        "arg1": dest_var,
+                        "arg2": hive,
+                        "arg3": k_path,
+                        "arg4": v_name
+                    })
+                    continue
+
+                # ::@reg_write <hive> <path> <name> <val> [type]
+                if dir_line.lower().startswith("reg_write ") or dir_line.lower().startswith("regwrite "):
+                    parts = dir_line.split(None, 5)
+                    hive = parts[1] if len(parts) > 1 else "HKCU"
+                    k_path = parts[2] if len(parts) > 2 else ""
+                    v_name = parts[3] if len(parts) > 3 else ""
+                    v_data = parts[4] if len(parts) > 4 else ""
+                    v_type = parts[5].strip('"\'') if len(parts) > 5 else "SZ"
+                    instructions.append({
+                        "op": TigerVMCompiler.OP_REG_WRITE,
+                        "arg1": hive,
+                        "arg2": k_path,
+                        "arg3": v_name,
+                        "arg4": f"{v_data}|{v_type}"
+                    })
+                    continue
+
+                # ::@mem_alloc <destVar> <size>
+                if dir_line.lower().startswith("mem_alloc ") or dir_line.lower().startswith("memalloc "):
+                    parts = dir_line.split(None, 2)
+                    dest_var = parts[1] if len(parts) > 1 else "PTR_VAL"
+                    m_size = parts[2] if len(parts) > 2 else "1024"
+                    instructions.append({
+                        "op": TigerVMCompiler.OP_MEM_ALLOC,
+                        "arg1": dest_var,
+                        "arg2": m_size
+                    })
+                    continue
+
+                # ::@mem_free <ptrVar>
+                if dir_line.lower().startswith("mem_free ") or dir_line.lower().startswith("memfree "):
+                    parts = dir_line.split(None, 1)
+                    ptr_var = parts[1] if len(parts) > 1 else ""
+                    instructions.append({
+                        "op": TigerVMCompiler.OP_MEM_FREE,
+                        "arg1": ptr_var
+                    })
+                    continue
+
+                # ::@mem_write <ptrVar> <text>
+                if dir_line.lower().startswith("mem_write ") or dir_line.lower().startswith("memwrite "):
+                    parts = dir_line.split(None, 2)
+                    ptr_var = parts[1] if len(parts) > 1 else ""
+                    m_txt = parts[2] if len(parts) > 2 else ""
+                    instructions.append({
+                        "op": TigerVMCompiler.OP_MEM_WRITE,
+                        "arg1": ptr_var,
+                        "arg2": m_txt
+                    })
+                    continue
+
+                # ::@mem_read <destVar> <ptrVar> [len]
+                if dir_line.lower().startswith("mem_read ") or dir_line.lower().startswith("memread "):
+                    parts = dir_line.split(None, 3)
+                    dest_var = parts[1] if len(parts) > 1 else "MEM_TEXT"
+                    ptr_var = parts[2] if len(parts) > 2 else ""
+                    m_len = parts[3] if len(parts) > 3 else "256"
+                    instructions.append({
+                        "op": TigerVMCompiler.OP_MEM_READ,
+                        "arg1": dest_var,
+                        "arg2": ptr_var,
+                        "arg3": m_len
+                    })
+                    continue
+
+                # ::@sys_info <destVar> <prop>
+                if dir_line.lower().startswith("sys_info ") or dir_line.lower().startswith("sysinfo "):
+                    parts = dir_line.split(None, 2)
+                    dest_var = parts[1] if len(parts) > 1 else "SYS_INFO"
+                    prop = parts[2].strip().strip('"\'') if len(parts) > 2 else "CPU_COUNT"
+                    instructions.append({
+                        "op": TigerVMCompiler.OP_SYS_INFO,
+                        "arg1": dest_var,
+                        "arg2": prop
+                    })
+                    continue
+
+                # ::@net_ping <destVar> <host> <port> [timeout]
+                if dir_line.lower().startswith("net_ping ") or dir_line.lower().startswith("netping ") or dir_line.lower().startswith("net_port "):
+                    parts = dir_line.split(None, 4)
+                    dest_var = parts[1] if len(parts) > 1 else "PING_RESULT"
+                    host = parts[2] if len(parts) > 2 else "127.0.0.1"
+                    port = parts[3] if len(parts) > 3 else "80"
+                    t_out = parts[4] if len(parts) > 4 else "2000"
+                    instructions.append({
+                        "op": TigerVMCompiler.OP_NET_PING,
+                        "arg1": dest_var,
+                        "arg2": host,
+                        "arg3": port,
+                        "arg4": t_out
+                    })
+                    continue
+
+                # ::@vfs_unzip <zipFile> [vfsPrefix]
+                if dir_line.lower().startswith("vfs_unzip ") or dir_line.lower().startswith("vfsunzip "):
+                    parts = dir_line.split(None, 2)
+                    z_src = parts[1] if len(parts) > 1 else ""
+                    v_pfx = parts[2] if len(parts) > 2 else "VFS:\\"
+                    instructions.append({
+                        "op": TigerVMCompiler.OP_VFS_UNZIP,
+                        "arg1": z_src,
+                        "arg2": v_pfx
                     })
                     continue
 
