@@ -24,7 +24,7 @@ BANNER = r"""
  +==============================================================+
  |  T I G E R V M   ::   B A T C H   C O M P I L E R   P R O    |
  |  Zero-Disk Virtual Machine & Enterprise Binary Hardening     |
- |  Build v8.0.0-APEX  | Arch: JIT + SQL/Data + Crypto AES-256  |
+ |  Build v9.0.0-TITAN | Arch: RAM Pointers + Win32 Reg + Net   |
  +==============================================================+
 """
 
@@ -34,11 +34,12 @@ def print_banner():
 
 def main():
     parser = argparse.ArgumentParser(
-        description="TigerVM Hardened Batch Compiler & Code Virtualization Suite v8.0-APEX.",
+        description="TigerVM Hardened Batch Compiler & Code Virtualization Suite v9.0.0-TITAN.",
         formatter_class=argparse.RawTextHelpFormatter,
     )
 
-    parser.add_argument("-i", "--input", required=True, help="Path to input .bat or .cmd script")
+    parser.add_argument("script", nargs="?", default=None, help="Path to input .bat or .cmd script")
+    parser.add_argument("-i", "--input", default=None, help="Path to input .bat or .cmd script")
     parser.add_argument("-o", "--output", help="Path to output file (.exe or .bat). Auto-generated if omitted.")
     parser.add_argument(
         "--mode",
@@ -146,15 +147,22 @@ def main():
     parser.add_argument("--title", default="TigerVM Standalone Application", help="Assembly Title")
     parser.add_argument("--desc", default="Compiled TigerVM Hardened Executable", help="File Description")
     parser.add_argument("--company", default="tigergenz", help="Company Name")
-    parser.add_argument("--version", default="6.0.0.0", help="File Version")
+    parser.add_argument("--version", default="9.0.0.0", help="File Version")
     parser.add_argument("--copyright", default="Copyright (C) tigergenz", help="Legal Copyright")
 
     args = parser.parse_args()
     print_banner()
 
-    if not os.path.exists(args.input):
-        print(f"[!] Error: Target script not found: {args.input}")
+    target_input = args.input or args.script
+    if not target_input:
+        print("[!] Error: Target script path is required (e.g. batc <script.bat> or -i <script.bat>)")
         sys.exit(1)
+
+    if not os.path.exists(target_input):
+        print(f"[!] Error: Target script not found: {target_input}")
+        sys.exit(1)
+
+    args.input = target_input
 
     with open(args.input, "r", encoding="utf-8", errors="replace") as f:
         script_content = f.read()

@@ -14,8 +14,8 @@ using System.IO.Compression;
 [assembly: AssemblyCompany("tigergenz")]
 [assembly: AssemblyProduct("TigerVM Enterprise Binary Suite")]
 [assembly: AssemblyCopyright("Copyright (C) tigergenz")]
-[assembly: AssemblyVersion("8.0.0.0")]
-[assembly: AssemblyFileVersion("8.0.0.0")]
+[assembly: AssemblyVersion("9.0.0.0")]
+[assembly: AssemblyFileVersion("9.0.0.0")]
 
 namespace TigerGenZ.BatCompiler
 {
@@ -43,7 +43,7 @@ namespace TigerGenZ.BatCompiler
  ╔══════════════════════════════════════════════════════════════╗
  ║  T I G E R V M   ::   B A T C H   C O M P I L E R   P R O    ║
  ║  Zero-Disk Virtual Machine & Enterprise Binary Hardening     ║
- ║  Build v8.0.0-APEX  | Arch: JIT + SQL/Data + Crypto AES-256  ║
+ ║  Build v9.0.0-TITAN | Arch: RAM Pointers + Win32 Reg + Net   ║
  ╚══════════════════════════════════════════════════════════════╝");
             Console.ResetColor();
         }
@@ -143,7 +143,7 @@ namespace TigerGenZ.BatCompiler
 
                 string outExe = Path.Combine(baseDir, baseName + ".exe");
                 Console.ForegroundColor = ConsoleColor.Yellow;
-                Console.WriteLine("\n[+] Compiling Batch with TigerVM v5.0 Engine...");
+                Console.WriteLine("\n[+] Compiling Batch with TigerVM v9.0-TITAN Engine...");
                 if (enableCff) Console.WriteLine("[+] Applying Control Flow Flattening (CFF State Machine)...");
                 if (enableArmor) Console.WriteLine("[+] Injecting Anti-Analysis, Anti-Debug, and SHA-256 Anti-Tamper...");
                 if (enableAntiVm) Console.WriteLine("[+] Injecting Anti-VM & Automated Sandbox Evasion...");
@@ -153,7 +153,7 @@ namespace TigerGenZ.BatCompiler
                 {
                     Console.ForegroundColor = ConsoleColor.Green;
                     Console.WriteLine("\n[OK] Build complete: " + outExe);
-                    Console.WriteLine("[*] Runtime Pipeline: TigerVM Virtual Stack (100% In-Memory Execution)");
+                    Console.WriteLine("[*] Runtime Pipeline: TigerVM v9.0-TITAN Virtual Stack (100% In-Memory Execution)");
                 }
                 else
                 {
@@ -254,6 +254,10 @@ namespace TigerGenZ.BatCompiler
                     ShowHelp();
                     return;
                 }
+                else if (!a.StartsWith("-") && inputPath == null)
+                {
+                    inputPath = a;
+                }
             }
 
             PrintBanner();
@@ -315,7 +319,7 @@ namespace TigerGenZ.BatCompiler
             {
                 Console.WriteLine("[*] Source Target   : " + Path.GetFullPath(inputPath));
                 Console.WriteLine("[*] Output Binary   : " + Path.GetFullPath(outputPath));
-                Console.WriteLine("[*] Execution Model : TigerVM v5.0 (Zero-Disk In-Memory Virtual Stack)");
+                Console.WriteLine("[*] Execution Model : TigerVM v9.0-TITAN (Zero-Disk In-Memory Virtual Stack)");
                 Console.WriteLine("[*] Control Flow    : " + (cff ? "Control Flow Flattening (CFF ACTIVE)" : "Direct Linear Execution"));
                 Console.WriteLine("[*] Armor Engine    : " + (armor ? "Anti-Analysis, Anti-Debug, SHA-256 Anti-Tamper ACTIVE" : "Standard"));
                 Console.WriteLine("[*] Sandbox Evasion : " + (antiVm ? "Active Hypervisor & Minimal Spec Evasion" : "Standard"));
@@ -2270,7 +2274,8 @@ Examples:
             csBld.AppendLine("using System.Security.Cryptography;");
             csBld.AppendLine("[assembly: AssemblyTitle(\"TigerVM Standalone Binary\")]");
             csBld.AppendLine("[assembly: AssemblyProduct(\"TigerVM Virtualized Application\")]");
-            csBld.AppendLine("[assembly: AssemblyVersion(\"8.0.0.0\")]");
+            csBld.AppendLine("[assembly: AssemblyVersion(\"9.0.0.0\")]");
+            csBld.AppendLine("[assembly: AssemblyFileVersion(\"9.0.0.0\")]");
             csBld.AppendLine("namespace TigerVmApp {");
 
             csBld.AppendLine(armorCode);
