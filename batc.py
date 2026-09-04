@@ -24,7 +24,7 @@ BANNER = r"""
  +==============================================================+
  |  T I G E R V M   ::   B A T C H   C O M P I L E R   P R O    |
  |  Zero-Disk Virtual Machine & Enterprise Binary Hardening     |
- |  Build v9.0.0-TITAN | Arch: RAM Pointers + Win32 Reg + Net   |
+ |  Build v10.0.0-SINGULARITY | Arch: Roslyn C# + IPC + Advapi  |
  +==============================================================+
 """
 
@@ -34,7 +34,7 @@ def print_banner():
 
 def main():
     parser = argparse.ArgumentParser(
-        description="TigerVM Hardened Batch Compiler & Code Virtualization Suite v9.0.0-TITAN.",
+        description="TigerVM Hardened Batch Compiler & Code Virtualization Suite v10.0.0-SINGULARITY.",
         formatter_class=argparse.RawTextHelpFormatter,
     )
 

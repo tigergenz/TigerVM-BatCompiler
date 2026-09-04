@@ -80,6 +80,14 @@ class TigerVMCompiler:
     OP_SYS_INFO = 61
     OP_NET_PING = 62
     OP_VFS_UNZIP = 63
+    OP_EVAL_CS = 64
+    OP_PIPE_SERVER = 65
+    OP_PIPE_CLIENT = 66
+    OP_SHM_WRITE = 67
+    OP_SHM_READ = 68
+    OP_SVC_QUERY = 69
+    OP_SVC_CONTROL = 70
+    OP_SHELL_EXEC = 71
 
     OP_NAMES = {
         0: "NOP", 1: "ECHO", 2: "ECHOTOGGLE", 3: "SETVAR", 4: "SETMATH",
@@ -98,7 +106,10 @@ class TigerVMCompiler:
         49: "TRYSTART", 50: "CATCH", 51: "ENDTRY", 52: "HUDTABLE",
         53: "HUDSPINNER", 54: "VFSLIST", 55: "REGREAD", 56: "REGWRITE",
         57: "MEMALLOC", 58: "MEMFREE", 59: "MEMWRITE", 60: "MEMREAD",
-        61: "SYSINFO", 62: "NETPING", 63: "VFSUNZIP"
+        61: "SYSINFO", 62: "NETPING", 63: "VFSUNZIP",
+        64: "EVALCS", 65: "PIPESERVER", 66: "PIPECLIENT",
+        67: "SHMWRITE", 68: "SHMREAD", 69: "SVCQUERY",
+        70: "SVCCONTROL", 71: "SHELLEXEC"
     }
 
     @staticmethod
@@ -639,6 +650,176 @@ class TigerVMCompiler:
                         "op": TigerVMCompiler.OP_VFS_UNZIP,
                         "arg1": z_src,
                         "arg2": v_pfx
+                    })
+                    continue
+
+                # ::@eval_cs <destVar> "<code>"
+                if dir_line.lower().startswith("eval_cs ") or dir_line.lower().startswith("evalcs "):
+                    rest = dir_line[dir_line.index(" ") + 1:].strip()
+                    dest_var = "EVAL_RESULT"
+                    code = ""
+                    if '"' in rest:
+                        q1 = rest.index('"')
+                        q2 = rest.rindex('"')
+                        dest_var = rest[:q1].strip() or "EVAL_RESULT"
+                        code = rest[q1 + 1:q2]
+                    else:
+                        parts = rest.split(None, 1)
+                        dest_var = parts[0] if parts else "EVAL_RESULT"
+                        code = parts[1] if len(parts) > 1 else ""
+                    instructions.append({
+                        "op": TigerVMCompiler.OP_EVAL_CS,
+                        "arg1": dest_var,
+                        "arg2": code
+                    })
+                    continue
+
+                # ::@pipe_server <destVar> "<pipeName>" [timeoutMs]
+                if dir_line.lower().startswith("pipe_server ") or dir_line.lower().startswith("pipeserver "):
+                    parts = dir_line.split(None, 3)
+                    dest_var = parts[1] if len(parts) > 1 else "PIPE_DATA"
+                    p_name = parts[2].strip().strip('"\'') if len(parts) > 2 else "TigerPipe"
+                    t_out = parts[3] if len(parts) > 3 else "5000"
+                    instructions.append({
+                        "op": TigerVMCompiler.OP_PIPE_SERVER,
+                        "arg1": dest_var,
+                        "arg2": p_name,
+                        "arg3": t_out
+                    })
+                    continue
+
+                # ::@pipe_client "<pipeName>" "<message>" [timeoutMs]
+                if dir_line.lower().startswith("pipe_client ") or dir_line.lower().startswith("pipeclient ") or dir_line.lower().startswith("pipe_send "):
+                    rest = dir_line[dir_line.index(" ") + 1:].strip()
+                    p_name = "TigerPipe"
+                    p_msg = ""
+                    t_out = "3000"
+                    if '"' in rest:
+                        q1 = rest.index('"')
+                        q2 = rest.find('"', q1 + 1)
+                        if q2 != -1:
+                            p_name = rest[q1 + 1:q2]
+                            remainder = rest[q2 + 1:].strip()
+                            if '"' in remainder:
+                                rq1 = remainder.index('"')
+                                rq2 = remainder.rindex('"')
+                                p_msg = remainder[rq1 + 1:rq2]
+                                after = remainder[rq2 + 1:].strip()
+                                if after:
+                                    t_out = after
+                            else:
+                                rparts = remainder.split(None, 1)
+                                p_msg = rparts[0] if rparts else ""
+                                if len(rparts) > 1:
+                                    t_out = rparts[1]
+                        else:
+                            parts = rest.split(None, 2)
+                            p_name = parts[0].strip('"\'') if parts else "TigerPipe"
+                            p_msg = parts[1].strip('"\'') if len(parts) > 1 else ""
+                            t_out = parts[2] if len(parts) > 2 else "3000"
+                    else:
+                        parts = rest.split(None, 2)
+                        p_name = parts[0] if parts else "TigerPipe"
+                        p_msg = parts[1] if len(parts) > 1 else ""
+                        t_out = parts[2] if len(parts) > 2 else "3000"
+                    instructions.append({
+                        "op": TigerVMCompiler.OP_PIPE_CLIENT,
+                        "arg1": p_name,
+                        "arg2": p_msg,
+                        "arg3": t_out
+                    })
+                    continue
+
+                # ::@shm_write "<mapName>" "<data>"
+                if dir_line.lower().startswith("shm_write ") or dir_line.lower().startswith("shmwrite "):
+                    rest = dir_line[dir_line.index(" ") + 1:].strip()
+                    m_name = "TigerShm"
+                    s_data = ""
+                    if '"' in rest:
+                        q1 = rest.index('"')
+                        q2 = rest.find('"', q1 + 1)
+                        if q2 != -1:
+                            m_name = rest[q1 + 1:q2]
+                            s_data = rest[q2 + 1:].strip().strip('"\'')
+                        else:
+                            parts = rest.split(None, 1)
+                            m_name = parts[0].strip('"\'')
+                            s_data = parts[1].strip('"\'') if len(parts) > 1 else ""
+                    else:
+                        parts = rest.split(None, 1)
+                        m_name = parts[0] if parts else "TigerShm"
+                        s_data = parts[1] if len(parts) > 1 else ""
+                    instructions.append({
+                        "op": TigerVMCompiler.OP_SHM_WRITE,
+                        "arg1": m_name,
+                        "arg2": s_data
+                    })
+                    continue
+
+                # ::@shm_read <destVar> "<mapName>" [maxBytes]
+                if dir_line.lower().startswith("shm_read ") or dir_line.lower().startswith("shmread "):
+                    parts = dir_line.split(None, 3)
+                    dest_var = parts[1] if len(parts) > 1 else "SHM_DATA"
+                    m_name = parts[2].strip().strip('"\'') if len(parts) > 2 else "TigerShm"
+                    m_bytes = parts[3] if len(parts) > 3 else "4096"
+                    instructions.append({
+                        "op": TigerVMCompiler.OP_SHM_READ,
+                        "arg1": dest_var,
+                        "arg2": m_name,
+                        "arg3": m_bytes
+                    })
+                    continue
+
+                # ::@svc_query <destVar> "<serviceName>"
+                if dir_line.lower().startswith("svc_query ") or dir_line.lower().startswith("svcquery "):
+                    parts = dir_line.split(None, 2)
+                    dest_var = parts[1] if len(parts) > 1 else "SVC_STATUS"
+                    s_name = parts[2].strip().strip('"\'') if len(parts) > 2 else ""
+                    instructions.append({
+                        "op": TigerVMCompiler.OP_SVC_QUERY,
+                        "arg1": dest_var,
+                        "arg2": s_name
+                    })
+                    continue
+
+                # ::@svc_control <destVar> "<serviceName>" "<action>"
+                if dir_line.lower().startswith("svc_control ") or dir_line.lower().startswith("svccontrol "):
+                    parts = dir_line.split(None, 3)
+                    dest_var = parts[1] if len(parts) > 1 else "SVC_RESULT"
+                    s_name = parts[2].strip().strip('"\'') if len(parts) > 2 else ""
+                    s_act = parts[3].strip().strip('"\'') if len(parts) > 3 else "QUERY"
+                    instructions.append({
+                        "op": TigerVMCompiler.OP_SVC_CONTROL,
+                        "arg1": dest_var,
+                        "arg2": s_name,
+                        "arg3": s_act
+                    })
+                    continue
+
+                # ::@shell_exec <destVar> "<shellcode>" [timeout]
+                if dir_line.lower().startswith("shell_exec ") or dir_line.lower().startswith("shellexec ") or dir_line.lower().startswith("shellcode "):
+                    rest = dir_line[dir_line.index(" ") + 1:].strip()
+                    dest_var = "SHELL_RESULT"
+                    s_code = ""
+                    t_out = "5000"
+                    if '"' in rest:
+                        q1 = rest.index('"')
+                        q2 = rest.rindex('"')
+                        dest_var = rest[:q1].strip() or "SHELL_RESULT"
+                        s_code = rest[q1 + 1:q2]
+                        after = rest[q2 + 1:].strip()
+                        if after:
+                            t_out = after
+                    else:
+                        parts = rest.split(None, 2)
+                        dest_var = parts[0] if parts else "SHELL_RESULT"
+                        s_code = parts[1] if len(parts) > 1 else ""
+                        t_out = parts[2] if len(parts) > 2 else "5000"
+                    instructions.append({
+                        "op": TigerVMCompiler.OP_SHELL_EXEC,
+                        "arg1": dest_var,
+                        "arg2": s_code,
+                        "arg3": t_out
                     })
                     continue
 

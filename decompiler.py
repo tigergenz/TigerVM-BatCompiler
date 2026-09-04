@@ -356,6 +356,22 @@ class BatchDecompiler:
                 lines.append(get_indent() + f"::@net_ping {a1} {a2} {a3} {a4}")
             elif op == TigerVMCompiler.OP_VFS_UNZIP:
                 lines.append(get_indent() + f"::@vfs_unzip \"{a1}\" \"{a2}\"")
+            elif op == TigerVMCompiler.OP_EVAL_CS:
+                lines.append(get_indent() + f"::@eval_cs {a1} \"{a2}\"")
+            elif op == TigerVMCompiler.OP_PIPE_SERVER:
+                lines.append(get_indent() + f"::@pipe_server {a1} \"{a2}\" {a3}")
+            elif op == TigerVMCompiler.OP_PIPE_CLIENT:
+                lines.append(get_indent() + f"::@pipe_client \"{a1}\" \"{a2}\" {a3}")
+            elif op == TigerVMCompiler.OP_SHM_WRITE:
+                lines.append(get_indent() + f"::@shm_write \"{a1}\" \"{a2}\"")
+            elif op == TigerVMCompiler.OP_SHM_READ:
+                lines.append(get_indent() + f"::@shm_read {a1} \"{a2}\" {a3}")
+            elif op == TigerVMCompiler.OP_SVC_QUERY:
+                lines.append(get_indent() + f"::@svc_query {a1} \"{a2}\"")
+            elif op == TigerVMCompiler.OP_SVC_CONTROL:
+                lines.append(get_indent() + f"::@svc_control {a1} \"{a2}\" \"{a3}\"")
+            elif op == TigerVMCompiler.OP_SHELL_EXEC:
+                lines.append(get_indent() + f"::@shell_exec {a1} \"{a2}\" {a3}")
             elif op in [TigerVMCompiler.OP_EXEC_DIRECT, TigerVMCompiler.OP_PIPE_STREAM]:
                 if a1:
                     lines.append(get_indent() + a1)

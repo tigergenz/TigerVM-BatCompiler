@@ -17,3 +17,7 @@ App.cs
 Thumbs.db
 Desktop.ini
 $RECYCLE.BIN/
+
+# Workflows (held locally if PAT lacks workflow scope)
+.github/
+
